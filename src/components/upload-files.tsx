@@ -55,19 +55,19 @@ const UploadFiles = () => {
         }
     };
 
-    const MacroCard = ({ icon: Icon, label, value, color }: any) => (
-        <div className="bg-gradient-to-br from-gray-800 to-gray-900 rounded-xl p-4 border border-gray-700 hover:border-orange-500 transition-all duration-300 transform hover:scale-105">
-            <div className="flex items-center gap-3">
-                <div className={`p-2 rounded-lg ${color}`}>
-                    <Icon className="w-5 h-5 text-white" />
-                </div>
-                <div>
-                    <p className="text-gray-400 text-xs uppercase tracking-wider">{label}</p>
-                    <p className="text-white text-xl font-bold">{value}</p>
-                </div>
-            </div>
-        </div>
-    );
+    // const MacroCard = ({ icon: Icon, label, value, color }: any) => (
+    //     <div className="bg-gradient-to-br from-gray-800 to-gray-900 rounded-xl p-4 border border-gray-700 hover:border-orange-500 transition-all duration-300 transform hover:scale-105">
+    //         <div className="flex items-center gap-3">
+    //             <div className={`p-2 rounded-lg ${color}`}>
+    //                 <Icon className="w-5 h-5 text-white" />
+    //             </div>
+    //             <div>
+    //                 <p className="text-gray-400 text-xs uppercase tracking-wider">{label}</p>
+    //                 <p className="text-white text-xl font-bold">{value}</p>
+    //             </div>
+    //         </div>
+    //     </div>
+    // );
 
     return (
         <>
