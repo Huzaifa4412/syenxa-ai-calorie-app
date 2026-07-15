@@ -115,9 +115,10 @@
 .brand-mark,.browse-button,.sign-out-button,.hero-cta{transition:transform .3s cubic-bezier(.16,1,.3,1),background-color .3s ease,color .3s ease,box-shadow .3s ease}
 .brand:hover .brand-mark{transform:rotate(-8deg) scale(1.06)}.browse-button:active,.sign-out-button:active,.hero-cta:active{transform:scale(.97)}
 
-.motion-ready [data-reveal]{opacity:0;transition:opacity .85s cubic-bezier(.16,1,.3,1),transform .85s cubic-bezier(.16,1,.3,1)}
+.motion-ready [data-reveal]{opacity:1;transition:opacity .85s cubic-bezier(.16,1,.3,1),transform .85s cubic-bezier(.16,1,.3,1)}
 .motion-ready [data-reveal="rise"]{transform:translate3d(0,54px,0)}.motion-ready [data-reveal="fade"]{transform:translate3d(0,18px,0)}
 .motion-ready [data-reveal].is-visible{opacity:1;transform:none}
+.scanner-workspace{opacity:1!important;transform:none!important}
 .motion-ready [data-reveal] [data-reveal-child]{opacity:0;transform:translate3d(0,34px,0)}
 .motion-ready [data-reveal].is-visible [data-reveal-child]{animation:section-child-enter .85s cubic-bezier(.16,1,.3,1) forwards}
 .motion-ready [data-reveal].is-visible [data-reveal-child]:nth-child(2){animation-delay:.1s}.motion-ready [data-reveal].is-visible [data-reveal-child]:nth-child(3){animation-delay:.2s}
@@ -174,3 +175,45 @@
 
 @media(max-width:700px){.upload-actions{width:100%;flex-direction:column}.upload-actions .browse-button,.capture-button{width:100%}.camera-overlay{align-items:end;padding:0}.camera-dialog{max-height:94dvh;border-radius:22px 7px 0 0;padding:.7rem}.camera-dialog-header{padding:.65rem .45rem 1rem}.camera-viewport{aspect-ratio:3/4;border-radius:15px 5px 15px 15px}.camera-controls{grid-template-columns:1fr auto;gap:.8rem}.camera-controls>p{display:none}.camera-gallery-link{justify-self:start}.shutter-button{grid-column:2;grid-row:1}.camera-gallery-link{grid-column:1;grid-row:1}}
 @media(prefers-reduced-motion:reduce){.camera-overlay,.camera-dialog,.camera-starting svg{animation:none!important}.camera-viewport video{transition:none}}
+
+/* Runtime recovery */
+.app-crash-state{min-height:100dvh;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:2rem;text-align:center;color:var(--deep);background:var(--paper)}
+.app-crash-state>span{display:grid;place-items:center;width:70px;height:70px;margin-bottom:1.5rem;border-radius:50%;color:#9a4d3a;background:#f3ddd6}
+.app-crash-state>span svg{width:28px;height:28px}.app-crash-state .section-kicker{margin-bottom:1rem}
+.app-crash-state h1{max-width:700px;margin:0;font-family:Georgia,serif;font-size:clamp(2.8rem,7vw,6rem);font-weight:500;line-height:.9;letter-spacing:-.065em}
+.app-crash-state>p:not(.section-kicker){max-width:520px;margin:1.4rem 0 1.8rem;color:var(--muted);line-height:1.65}
+.app-crash-state button{display:inline-flex;align-items:center;gap:.55rem;min-height:48px;padding:.75rem 1.1rem;border:0;border-radius:8px;color:var(--lime);background:var(--forest);font:inherit;font-size:.8rem;font-weight:700;cursor:pointer}
+
+/* Result workspace: persistent meal rail */
+@media(min-width:961px){
+  .scanner-workspace.has-result{background:linear-gradient(90deg,#e8eee6 0 38%,var(--surface) 38%)}
+  .scanner-workspace.has-result .workspace-grid{grid-template-columns:minmax(320px,.68fr) minmax(0,1.32fr);align-items:start}
+  .scanner-workspace.has-result .capture-panel{position:sticky;top:1rem;align-self:start}
+  .scanner-workspace.has-result .drop-zone{min-height:clamp(460px,58dvh,620px);box-shadow:0 22px 50px rgba(18,61,49,.11)}
+  .scanner-workspace.has-result .capture-tip{background:rgba(255,255,255,.62);box-shadow:0 14px 34px rgba(18,61,49,.07)}
+}
+
+/* Meal scanner result dashboard */
+.result-scan-card{display:flex;align-items:center;gap:1rem;padding:1.2rem;border-radius:18px 6px 18px 18px;color:#e7f1ec;background:var(--forest)}
+.result-scan-icon{display:grid;place-items:center;flex:0 0 auto;width:48px;height:48px;border-radius:50%;color:var(--forest);background:var(--lime)}.result-scan-icon svg{width:20px;height:20px;stroke-width:2}
+.result-scan-card p{margin:0 0 .25rem;color:var(--mint);font:.58rem "Cascadia Mono",monospace;text-transform:uppercase;letter-spacing:.08em}.result-scan-card strong{font-family:Georgia,serif;font-size:1.25rem;font-weight:500;letter-spacing:-.035em}.result-scan-meta{margin-left:auto;text-align:right}.result-scan-meta span{display:block;margin-bottom:.3rem;color:#89a096;font-size:.58rem;text-transform:uppercase}.result-scan-meta b{color:var(--lime);font-size:.7rem;font-weight:680;text-transform:capitalize}
+
+@media(min-width:961px){
+  .scanner-workspace.has-result{background:var(--surface)}
+  .scanner-workspace.has-result .workspace-grid{display:grid;grid-template-columns:1fr;gap:1.15rem}
+  .scanner-workspace.has-result .capture-panel{position:static;display:grid;grid-template-columns:minmax(0,1.45fr) minmax(290px,.55fr);grid-template-rows:1fr 1fr;gap:1rem;align-self:auto}
+  .scanner-workspace.has-result .drop-zone{grid-column:1;grid-row:1/3;width:100%;height:clamp(370px,34vw,500px);min-height:0;box-shadow:0 24px 58px rgba(18,61,49,.13)}
+  .scanner-workspace.has-result .capture-tip{grid-column:2;grid-row:1;min-height:0;margin:0;align-items:center;padding:clamp(1.4rem,3vw,2.4rem);border-radius:8px 22px 22px 22px;background:#edf3ec;box-shadow:none}
+  .scanner-workspace.has-result .capture-tip svg{width:24px;height:24px}.scanner-workspace.has-result .capture-tip strong{font-family:Georgia,serif;font-size:1.3rem;font-weight:500}.scanner-workspace.has-result .capture-tip span{max-width:260px;margin-top:.25rem;font-size:.76rem}
+  .scanner-workspace.has-result .result-scan-card{grid-column:2;grid-row:2;border-radius:22px 22px 8px 22px}
+  .scanner-workspace.has-result .scanner-error{grid-column:1/-1;grid-row:3;margin:0}
+  .scanner-workspace.has-result .analysis-panel{min-height:0;border-radius:22px 8px 22px 22px}
+  .scanner-workspace.has-result .results-view{min-height:0}
+  .scanner-workspace.has-result .calorie-summary{display:grid;grid-template-columns:minmax(260px,.65fr) minmax(0,1.35fr);align-items:end;gap:clamp(2rem,5vw,5rem)}
+  .scanner-workspace.has-result .macro-grid{margin-top:0}
+  .scanner-workspace.has-result .food-list{max-height:none;overflow:visible;padding-right:0}
+  .scanner-workspace.has-result .food-row{grid-template-columns:44px minmax(280px,1.15fr) minmax(420px,1fr);gap:1.4rem;padding:1.25rem 0}
+}
+
+@media(max-width:960px){.result-scan-card{margin-top:1rem}}
+@media(max-width:560px){.result-scan-card{align-items:flex-start;flex-wrap:wrap}.result-scan-meta{width:100%;margin-left:64px;text-align:left}}

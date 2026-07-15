@@ -24,8 +24,10 @@ import { getScanQuota } from "../lib/quota";
 import type { MealAnalysis, ScanQuota } from "../types";
 import AuthPanel from "./auth-panel";
 
-const MAX_FILE_SIZE = 10 * 1024 * 1024;
-const ALLOWED_IMAGE_TYPES = new Set(["image/jpeg", "image/png", "image/webp"]);
+const MAX_FILE_SIZE = 25 * 1024 * 1024;
+const MAX_IMAGE_DIMENSION = 2048;
+const ALLOWED_IMAGE_TYPES = new Set(["image/jpeg", "image/jpg", "image/png", "image/webp"]);
+const ALLOWED_IMAGE_EXTENSIONS = new Set(["jpg", "jpeg", "png", "webp"]);
 const directN8nWebhookUrl = import.meta.env.VITE_N8N_MEAL_WEBHOOK_URL?.trim()
     || "https://n8n.srv929626.hstgr.cloud/webhook/meal-ai";
 const directN8nMode = Boolean(directN8nWebhookUrl);
@@ -63,6 +65,54 @@ const getResetCopy = (resetAt: string | null) => {
     const hours = Math.floor(totalMinutes / 60);
     const minutes = totalMinutes % 60;
     return hours > 0 ? `${hours}h ${minutes}m` : `${minutes}m`;
+};
+
+const getFileExtension = (file: File) => file.name.split(".").pop()?.toLowerCase() ?? "";
+
+const getFileFormatLabel = (file: File) => {
+    const extension = getFileExtension(file);
+    if (extension) return extension.toUpperCase();
+    if (file.type) return file.type.replace(/^image\//, "").toUpperCase();
+    return "Unknown format";
+};
+
+const prepareMealImage = async (file: File): Promise<File> => {
+    if (!("createImageBitmap" in window)) return file;
+
+    const bitmap = await createImageBitmap(file, { imageOrientation: "from-image" });
+    const longestSide = Math.max(bitmap.width, bitmap.height);
+    const scale = Math.min(1, MAX_IMAGE_DIMENSION / longestSide);
+
+    if (scale === 1 && file.size <= 5 * 1024 * 1024 && file.type === "image/jpeg") {
+        bitmap.close();
+        return file;
+    }
+
+    const canvas = document.createElement("canvas");
+    canvas.width = Math.max(1, Math.round(bitmap.width * scale));
+    canvas.height = Math.max(1, Math.round(bitmap.height * scale));
+    const context = canvas.getContext("2d", { alpha: false });
+
+    if (!context) {
+        bitmap.close();
+        throw new Error("This browser could not prepare the photo. Try a smaller image.");
+    }
+
+    context.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+    bitmap.close();
+
+    const optimizedBlob = await new Promise<Blob>((resolve, reject) => {
+        canvas.toBlob((blob) => {
+            if (blob) resolve(blob);
+            else reject(new Error("This photo could not be prepared. Try another image."));
+        }, "image/jpeg", 0.88);
+    });
+
+    const baseName = file.name.replace(/\.[^.]+$/, "") || "meal";
+    return new File([optimizedBlob], `${baseName}-optimized.jpg`, {
+        type: "image/jpeg",
+        lastModified: Date.now(),
+    });
 };
 
 const UploadFiles = () => {
@@ -112,6 +162,12 @@ const UploadFiles = () => {
     }, [quota]);
 
     useEffect(() => {
+        return () => {
+            if (imagePreview?.startsWith("blob:")) URL.revokeObjectURL(imagePreview);
+        };
+    }, [imagePreview]);
+
+    useEffect(() => {
         const motionRoot = document.documentElement;
         const revealItems = Array.from(document.querySelectorAll<HTMLElement>("[data-reveal]"));
         const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
@@ -129,7 +185,7 @@ const UploadFiles = () => {
                 entry.target.classList.add("is-visible");
                 observer.unobserve(entry.target);
             });
-        }, { threshold: 0.14, rootMargin: "0px 0px -8%" });
+        }, { threshold: 0.04, rootMargin: "0px 0px -4%" });
 
         revealItems.forEach((item) => observer.observe(item));
 
@@ -202,43 +258,54 @@ const UploadFiles = () => {
             setError(`Your free scans reset in ${getResetCopy(quota.resetAt)}.`);
             return;
         }
-        if (!ALLOWED_IMAGE_TYPES.has(file.type)) {
-            setError("Choose a JPG, PNG, or WEBP image.");
+        const extension = getFileExtension(file);
+        const supportedFormat = ALLOWED_IMAGE_TYPES.has(file.type)
+            || (!file.type && ALLOWED_IMAGE_EXTENSIONS.has(extension));
+
+        if (!supportedFormat) {
+            setError(`${getFileFormatLabel(file)} files are not supported. Choose a JPG, JPEG, PNG, or WEBP image.`);
             return;
         }
         if (file.size <= 0 || file.size > MAX_FILE_SIZE) {
-            setError("Choose an image smaller than 10 MB.");
+            setError("Choose an image smaller than 25 MB.");
             return;
         }
-
-        // Create image preview
-        const reader = new FileReader();
-        reader.onloadend = () => {
-            setImagePreview(reader.result as string);
-        };
-        reader.readAsDataURL(file);
 
         setError(null);
         setLoading(true);
         try {
+            let preparedFile: File;
+            try {
+                preparedFile = await prepareMealImage(file);
+            } catch {
+                throw new Error("This image could not be read. Choose a valid JPG, JPEG, PNG, or WEBP file.");
+            }
+            setImagePreview(URL.createObjectURL(preparedFile));
+
             if (directN8nMode) {
                 const formData = new FormData();
-                formData.append("file", file);
+                formData.append("file", preparedFile);
                 const response = await fetch(directN8nWebhookUrl, { method: "POST", body: formData });
                 const payload: unknown = await response.json().catch(() => null);
 
                 if (!response.ok) {
-                    throw new Error(`n8n test webhook returned HTTP ${response.status}.`);
+                    if (response.status === 413) {
+                        throw new Error("The uploaded image is too large for the scanner. Choose a smaller photo.");
+                    }
+                    if (response.status === 415) {
+                        throw new Error("The workflow rejected this image format. Use JPG, JPEG, PNG, or WEBP.");
+                    }
+                    throw new Error(`The nutrition workflow returned an error (HTTP ${response.status}). Try again.`);
                 }
 
                 const output = getMealAnalysisFromWebhook(payload);
                 if (!output) {
-                    throw new Error("n8n responded, but the nutrition data format was not recognized.");
+                    throw new Error("The workflow responded, but no valid nutrition result was returned. Try another photo.");
                 }
 
                 setResult(output);
             } else {
-                const data = await analyzeMeal(file);
+                const data = await analyzeMeal(preparedFile);
                 setResult(data.output);
                 setQuota(data.quota);
             }
@@ -247,6 +314,8 @@ const UploadFiles = () => {
                 if (caught.quota) setQuota(caught.quota);
                 if (caught.status === 401) await signOut().catch(() => undefined);
                 setError(caught.message);
+            } else if (caught instanceof TypeError) {
+                setError("The scanner could not reach the nutrition workflow. Check your connection and try again.");
             } else {
                 setError(caught instanceof Error ? caught.message : "Meal analysis failed. Check your connection and try again.");
             }
@@ -396,7 +465,7 @@ const UploadFiles = () => {
                 </div>
             </section>
 
-            <section className={`scanner-workspace ${result ? "has-result" : ""}`} id="meal-scanner" data-reveal="rise">
+            <section className={`scanner-workspace ${result ? "has-result" : ""}`} id="meal-scanner">
                 <div className="workspace-heading">
                     <div>
                         <p className="section-kicker">Meal scanner</p>
@@ -404,7 +473,7 @@ const UploadFiles = () => {
                     </div>
                     <span className="workspace-step">
                         {directN8nMode
-                            ? "Authentication temporarily disabled"
+                            ? "Live analysis ready"
                             : user
                             ? quotaExhausted
                                 ? `Resets in ${getResetCopy(quota?.resetAt ?? null)}`
@@ -454,10 +523,11 @@ const UploadFiles = () => {
                                 id="gallery-upload"
                                 aria-label="Choose a meal photo from the gallery"
                                 disabled={quotaExhausted || loading}
+                                hidden
                             />
                             <input
                                 type="file"
-                                accept="image/*"
+                                accept="image/jpeg,image/png,image/webp"
                                 capture="environment"
                                 onChange={(e) => {
                                     if (e.target.files?.[0]) {
@@ -470,6 +540,7 @@ const UploadFiles = () => {
                                 id="device-camera-capture"
                                 aria-label="Take a meal photo with the device camera"
                                 disabled={quotaExhausted || loading}
+                                hidden
                             />
 
                             {imagePreview ? (
@@ -519,6 +590,20 @@ const UploadFiles = () => {
                                 <span>Keep the full plate visible and use natural light.</span>
                             </div>
                         </div>
+
+                        {result && (
+                            <aside className="result-scan-card" aria-label="Scan summary">
+                                <span className="result-scan-icon"><Check aria-hidden="true" /></span>
+                                <div>
+                                    <p>Scan complete</p>
+                                    <strong>{result.food.length} {result.food.length === 1 ? "food" : "foods"} identified</strong>
+                                </div>
+                                <div className="result-scan-meta">
+                                    <span>Confidence</span>
+                                    <b>{result.confidence ?? "Estimated"}</b>
+                                </div>
+                            </aside>
+                        )}
                     </div>
 
                     <div className="analysis-panel" aria-live="polite">
