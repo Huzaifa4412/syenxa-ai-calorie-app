@@ -14,7 +14,6 @@ import {
     LogOut,
     ScanLine,
     Sparkles,
-    Utensils,
     Wheat,
     Zap,
 } from "lucide-react";
@@ -106,6 +105,34 @@ const UploadFiles = () => {
         const timer = window.setInterval(() => refreshClock((value) => value + 1), 30_000);
         return () => window.clearInterval(timer);
     }, [quota]);
+
+    useEffect(() => {
+        const motionRoot = document.documentElement;
+        const revealItems = Array.from(document.querySelectorAll<HTMLElement>("[data-reveal]"));
+        const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+        motionRoot.classList.add("motion-ready");
+
+        if (reducedMotion || !("IntersectionObserver" in window)) {
+            revealItems.forEach((item) => item.classList.add("is-visible"));
+            return () => motionRoot.classList.remove("motion-ready");
+        }
+
+        const observer = new IntersectionObserver((entries) => {
+            entries.forEach((entry) => {
+                if (!entry.isIntersecting) return;
+                entry.target.classList.add("is-visible");
+                observer.unobserve(entry.target);
+            });
+        }, { threshold: 0.14, rootMargin: "0px 0px -8%" });
+
+        revealItems.forEach((item) => observer.observe(item));
+
+        return () => {
+            observer.disconnect();
+            motionRoot.classList.remove("motion-ready");
+        };
+    }, []);
 
     const handleUpload = async (file: File) => {
         if (!directN8nMode && !user) {
@@ -217,7 +244,7 @@ const UploadFiles = () => {
                     </div>
                 ) : user ? (
                     <div className="user-tools">
-                        <span className="quota-chip"><b>{quota?.remaining ?? "—"}</b> / 3 scans left</span>
+                        <span className="quota-chip"><b>{quota?.remaining ?? "..."}</b> / 3 scans left</span>
                         <span className="user-name" title={user.email}>{displayName}</span>
                         <button className="sign-out-button" type="button" onClick={() => signOut()} aria-label="Sign out">
                             <LogOut size={17} />
@@ -231,35 +258,50 @@ const UploadFiles = () => {
                 )}
             </header>
 
-            <section className="hero" id="top">
-                <div className="hero-copy">
+            <section className="hero hero-v3" id="top">
+                <div className="hero-copy hero-v3-copy">
                     <p className="eyebrow"><Sparkles size={14} aria-hidden="true" /> AI meal analysis</p>
-                    <h1>Know what’s<br />on your plate.</h1>
-                    <p className="hero-intro">
-                        Turn a meal photo into a clear nutrition breakdown—calories,
-                        macros, and every detected item in one focused view.
-                    </p>
-                    <div className="hero-proof" aria-label="Analysis benefits">
-                        <span><Check size={15} /> One photo</span>
-                        <span><Check size={15} /> Instant breakdown</span>
-                        <span><Check size={15} /> No manual entry</span>
-                    </div>
-                </div>
+                    <h1 aria-label="Know what’s on your plate.">
+                        <span className="hero-title-row hero-title-row-one">
+                            <span className="hero-title-token stagger-1">Know</span>
+                            <span className="hero-title-token stagger-2">what’s</span>
+                            <span className="hero-image-capsule capsule-greens hero-title-token stagger-3" role="img" aria-label="A colorful healthy meal">
+                                <img
+                                    src="https://images.unsplash.com/photo-1547592180-85f173990554?auto=format&fit=crop&w=900&q=85"
+                                    alt=""
+                                    aria-hidden="true"
+                                    decoding="async"
+                                    fetchPriority="high"
+                                />
+                            </span>
+                        </span>
+                        <span className="hero-title-row hero-title-row-two">
+                            <span className="hero-image-capsule capsule-protein hero-title-token stagger-4" role="img" aria-label="A balanced chicken meal">
+                                <img
+                                    src="https://images.unsplash.com/photo-1604908176997-125f25cc6f3d?auto=format&fit=crop&w=900&q=85"
+                                    alt=""
+                                    aria-hidden="true"
+                                    decoding="async"
+                                />
+                            </span>
+                            <span className="hero-title-token stagger-5">on your</span>
+                            <span className="hero-title-token stagger-6">plate.</span>
+                        </span>
+                    </h1>
 
-                <div className="hero-visual" aria-hidden="true">
-                    <div className="energy-orbit orbit-outer" />
-                    <div className="energy-orbit orbit-inner" />
-                    <div className="plate-core">
-                        <Utensils />
-                        <span>scan ready</span>
+                    <div className="hero-v3-footer">
+                        <p className="hero-intro">
+                            Turn one meal photo into clear calories, macros, ingredients,
+                            and key nutrients.
+                        </p>
+                        <a className="hero-cta" href="#meal-scanner">
+                            Scan a meal <Camera size={18} aria-hidden="true" />
+                        </a>
                     </div>
-                    <div className="orbit-note note-one"><span>01</span> capture</div>
-                    <div className="orbit-note note-two"><span>02</span> analyse</div>
-                    <div className="orbit-note note-three"><span>03</span> understand</div>
                 </div>
             </section>
 
-            <section className={`scanner-workspace ${result ? "has-result" : ""}`} id="meal-scanner">
+            <section className={`scanner-workspace ${result ? "has-result" : ""}`} id="meal-scanner" data-reveal="rise">
                 <div className="workspace-heading">
                     <div>
                         <p className="section-kicker">Meal scanner</p>
@@ -271,7 +313,7 @@ const UploadFiles = () => {
                             : user
                             ? quotaExhausted
                                 ? `Resets in ${getResetCopy(quota?.resetAt ?? null)}`
-                                : `${quota?.remaining ?? "—"} of 3 scans available`
+                                : `${quota?.remaining ?? "..."} of 3 scans available`
                             : "Account required"}
                     </span>
                 </div>
@@ -493,7 +535,89 @@ const UploadFiles = () => {
                 )}
             </section>
 
-            <footer className="footer">
+            <section className="nutrition-marquee" aria-label="Nutrition categories included in an analysis" data-reveal="fade">
+                <div className="marquee-track">
+                    <div className="marquee-group">
+                        <span>Calories</span><i />
+                        <span>Protein</span><i />
+                        <span>Carbohydrates</span><i />
+                        <span>Fats</span><i />
+                        <span>Micronutrients</span><i />
+                        <span>Ingredients</span><i />
+                    </div>
+                    <div className="marquee-group" aria-hidden="true">
+                        <span>Calories</span><i />
+                        <span>Protein</span><i />
+                        <span>Carbohydrates</span><i />
+                        <span>Fats</span><i />
+                        <span>Micronutrients</span><i />
+                        <span>Ingredients</span><i />
+                    </div>
+                </div>
+            </section>
+
+            <section className="process-story content-section" data-reveal="rise">
+                <div className="section-intro">
+                    <p className="section-kicker">From photo to context</p>
+                    <h2>A clearer look at<br />the food in front of you.</h2>
+                    <p>Huzzi turns visible meal details into an organized estimate you can understand at a glance.</p>
+                </div>
+
+                <div className="process-grid">
+                    <figure className="process-image" data-reveal-child>
+                        <img
+                            src="https://images.unsplash.com/photo-1540189549336-e6e99c3679fe?auto=format&fit=crop&w=1400&q=88"
+                            alt="A colorful bowl filled with vegetables"
+                            loading="lazy"
+                            decoding="async"
+                        />
+                    </figure>
+
+                    <article className="process-card process-card-scan" data-reveal-child>
+                        <span className="process-icon"><ScanLine aria-hidden="true" /></span>
+                        <div>
+                            <h3>Visible details become useful structure.</h3>
+                            <p>The workflow identifies foods and estimates portions before calculating the nutrition breakdown.</p>
+                        </div>
+                    </article>
+
+                    <article className="process-card process-card-context" data-reveal-child>
+                        <span className="process-icon"><Activity aria-hidden="true" /></span>
+                        <div>
+                            <h3>More than one calorie number.</h3>
+                            <p>See individual foods, macros, micronutrients, assumptions, and confidence in the same result.</p>
+                        </div>
+                    </article>
+                </div>
+            </section>
+
+            <section className="honesty-section content-section" data-reveal="rise">
+                <div className="honesty-heading">
+                    <span className="honesty-icon"><Check aria-hidden="true" /></span>
+                    <p className="section-kicker">Designed for honest estimates</p>
+                    <h2>Useful guidance.<br /><em>Clear limits.</em></h2>
+                </div>
+
+                <div className="honesty-notes">
+                    <article data-reveal-child>
+                        <span>What the image shows</span>
+                        <h3>Evidence first</h3>
+                        <p>The analysis is grounded in visible ingredients and portions, not hidden recipe information.</p>
+                    </article>
+                    <article data-reveal-child>
+                        <span>What may vary</span>
+                        <h3>Assumptions included</h3>
+                        <p>Preparation method, sauces, oils, and exact serving weights can change the final nutrition values.</p>
+                    </article>
+                    <article data-reveal-child>
+                        <span>How to use it</span>
+                        <h3>Awareness, not advice</h3>
+                        <p>Use the result as practical food awareness. It is not laboratory analysis or medical advice.</p>
+                    </article>
+                </div>
+            </section>
+
+            <footer className="footer" data-reveal="fade">
                 <div className="footer-brand"><Leaf size={18} /> huzzi ai</div>
                 <p>Nutrition estimates are for general guidance and may vary by portion and preparation.</p>
                 <span>Built for better food awareness.</span>
