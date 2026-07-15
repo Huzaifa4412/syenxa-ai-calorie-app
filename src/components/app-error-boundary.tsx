@@ -17,7 +17,7 @@ class AppErrorBoundary extends Component<AppErrorBoundaryProps, AppErrorBoundary
     }
 
     componentDidCatch(error: Error, info: ErrorInfo) {
-        console.error("Huzzi AI interface error", error, info);
+        console.error("Syenxa Calories interface error", error, info);
     }
 
     render() {

@@ -1,6 +1,6 @@
-# Huzzi AI meal scanner
+# Syenxa Calories meal scanner
 
-Huzzi AI turns a meal photo into a calorie and macro breakdown. Users must sign in and receive three free analyses during any rolling 24-hour period.
+Syenxa Calories turns a meal photo into a calorie and macro breakdown. Users must sign in and receive three free analyses during any rolling 24-hour period.
 
 > Current testing mode sends images directly to the production n8n webhook and bypasses authentication. The Supabase files remain available for re-enabling protected quotas later.
 

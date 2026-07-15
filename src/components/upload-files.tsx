@@ -354,7 +354,7 @@ const UploadFiles = () => {
                 return;
             }
 
-            const photo = new File([blob], `huzzi-meal-${Date.now()}.jpg`, { type: "image/jpeg" });
+            const photo = new File([blob], `syenxa-calories-meal-${Date.now()}.jpg`, { type: "image/jpeg" });
             setCameraOpen(false);
             void handleUpload(photo);
         }, "image/jpeg", 0.92);
@@ -396,10 +396,9 @@ const UploadFiles = () => {
             <a className="skip-link" href="#meal-scanner">Skip to meal scanner</a>
 
             <header className="topbar">
-                <a className="brand" href="#top" aria-label="Huzzi AI home">
+                <a className="brand" href="#top" aria-label="Syenxa Calories home">
                     <span className="brand-mark"><Leaf aria-hidden="true" /></span>
-                    <span className="brand-name">huzzi</span>
-                    <span className="brand-tag">nutrition intelligence</span>
+                    <span className="brand-name">Syenxa Calories</span>
                 </a>
                 {directN8nMode ? (
                     <div className="system-status test-status" aria-label="n8n direct workflow mode enabled">
@@ -492,7 +491,7 @@ const UploadFiles = () => {
                         <aside className="auth-benefits">
                             <p className="section-kicker">A useful free tier</p>
                             <h3>Three complete scans.<br />Every 24 hours.</h3>
-                            <p>Sign in once, then use Huzzi AI for breakfast, lunch, and dinner without surprise charges.</p>
+                            <p>Sign in once, then use Syenxa Calories for breakfast, lunch, and dinner without surprise charges.</p>
                             <div className="benefit-list">
                                 <span><Check size={16} /> Full calorie estimate</span>
                                 <span><Check size={16} /> Protein, carbs, and fat</span>
@@ -814,7 +813,7 @@ const UploadFiles = () => {
                 <div className="section-intro">
                     <p className="section-kicker">From photo to context</p>
                     <h2>A clearer look at<br />the food in front of you.</h2>
-                    <p>Huzzi turns visible meal details into an organized estimate you can understand at a glance.</p>
+                    <p>Syenxa Calories turns visible meal details into an organized estimate you can understand at a glance.</p>
                 </div>
 
                 <div className="process-grid">
@@ -872,7 +871,7 @@ const UploadFiles = () => {
             </section>
 
             <footer className="footer" data-reveal="fade">
-                <div className="footer-brand"><Leaf size={18} /> huzzi ai</div>
+                <div className="footer-brand"><Leaf size={18} /> Syenxa Calories</div>
                 <p>Nutrition estimates are for general guidance and may vary by portion and preparation.</p>
                 <span>Built for better food awareness.</span>
             </footer>

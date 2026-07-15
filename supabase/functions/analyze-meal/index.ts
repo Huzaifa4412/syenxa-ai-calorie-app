@@ -136,7 +136,7 @@ Deno.serve(async (request) => {
   try {
     upstream = await fetch(n8nWebhookUrl, {
       method: "POST",
-      headers: { "X-Huzzi-Webhook-Secret": n8nWebhookSecret },
+      headers: { "X-Syenxa-Calories-Webhook-Secret": n8nWebhookSecret },
       body: upstreamForm,
     });
   } catch {
