@@ -1,73 +1,83 @@
-# React + TypeScript + Vite
+# Huzzi AI meal scanner
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+Huzzi AI turns a meal photo into a calorie and macro breakdown. Users must sign in and receive three free analyses during any rolling 24-hour period.
 
-Currently, two official plugins are available:
+## Architecture
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Babel](https://babeljs.io/) (or [oxc](https://oxc.rs) when used in [rolldown-vite](https://vite.dev/guide/rolldown)) for Fast Refresh
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/) for Fast Refresh
-
-## React Compiler
-
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
-
-## Expanding the ESLint configuration
-
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
-
-```js
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-
-      // Remove tseslint.configs.recommended and replace with this
-      tseslint.configs.recommendedTypeChecked,
-      // Alternatively, use this for stricter rules
-      tseslint.configs.strictTypeChecked,
-      // Optionally, add this for stylistic rules
-      tseslint.configs.stylisticTypeChecked,
-
-      // Other configs...
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+```text
+React app
+  -> Supabase Auth (email magic link)
+  -> Supabase Edge Function (JWT, file validation, quota)
+  -> protected n8n webhook (secret header)
+  -> existing meal-analysis nodes
 ```
 
-You can also install [eslint-plugin-react-x](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-dom) for React-specific lint rules:
+The n8n URL and webhook secret never enter the browser bundle. Quota is consumed atomically immediately before the Edge Function calls n8n.
 
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
+## Local setup
 
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-      // Enable lint rules for React
-      reactX.configs['recommended-typescript'],
-      // Enable lint rules for React DOM
-      reactDom.configs.recommended,
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+Requirements: Node.js, a Supabase project, and access to the existing n8n workflow.
+
+1. Install dependencies:
+
+   ```bash
+   npm install
+   ```
+
+2. Copy `.env.example` to `.env.local` and provide:
+
+   ```env
+   VITE_SUPABASE_URL=https://YOUR_PROJECT.supabase.co
+   VITE_SUPABASE_PUBLISHABLE_KEY=YOUR_SUPABASE_PUBLISHABLE_KEY
+   ```
+
+3. Apply the migration in `supabase/migrations` with the Supabase CLI or SQL editor.
+
+4. In Supabase Auth:
+
+   - Enable email magic-link sign-in.
+   - Add the local and production site URLs to allowed redirect URLs.
+
+5. Protect and rotate the n8n webhook using [n8n/PROTECTED_WEBHOOK.md](n8n/PROTECTED_WEBHOOK.md).
+
+6. Configure and deploy the Edge Function:
+
+   ```bash
+   supabase secrets set \
+     N8N_MEAL_WEBHOOK_URL="https://YOUR_N8N_HOST/webhook/NEW_PATH" \
+     N8N_WEBHOOK_SECRET="YOUR_RANDOM_SERVER_SECRET" \
+     ALLOWED_ORIGINS="http://localhost:5173,https://YOUR_PRODUCTION_DOMAIN"
+
+   supabase functions deploy analyze-meal
+   ```
+
+   `SUPABASE_URL` and `SUPABASE_ANON_KEY` are supplied by the Supabase Functions runtime.
+
+7. Start the app:
+
+   ```bash
+   npm run dev
+   ```
+
+## Quota behavior
+
+- Limit: 3 accepted scans per authenticated user.
+- Window: rolling 24 hours, based on each scan timestamp.
+- Invalid file types, files over 10 MB, and unauthenticated requests do not consume quota.
+- Quota is consumed before the paid AI workflow begins. Upstream failures after that point still count.
+- The database function takes a per-user transaction lock, so concurrent uploads cannot exceed the limit.
+
+## Security notes
+
+- Never add the n8n URL, webhook secret, Supabase service-role key, or AI credentials to `VITE_*` variables.
+- `verify_jwt = false` in `supabase/config.toml` allows CORS preflight and current Supabase key formats; the function still verifies every bearer token with `auth.getUser()` before any quota or n8n call.
+- The usage table has RLS enabled and no direct browser table permissions. Authenticated users can only use the controlled quota functions.
+- Disable the original public n8n webhook before release.
+
+## Checks
+
+```bash
+npm run lint
+npm run build
+npm audit
 ```
