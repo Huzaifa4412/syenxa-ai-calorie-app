@@ -3,7 +3,7 @@
 interface ImportMetaEnv {
   readonly VITE_SUPABASE_URL?: string;
   readonly VITE_SUPABASE_PUBLISHABLE_KEY?: string;
-  readonly VITE_DIRECT_N8N_MODE?: string;
+  readonly VITE_N8N_MEAL_WEBHOOK_URL?: string;
 }
 
 interface ImportMeta {

@@ -26,7 +26,9 @@ import AuthPanel from "./auth-panel";
 
 const MAX_FILE_SIZE = 10 * 1024 * 1024;
 const ALLOWED_IMAGE_TYPES = new Set(["image/jpeg", "image/png", "image/webp"]);
-const directN8nMode = import.meta.env.VITE_DIRECT_N8N_MODE === "true";
+const directN8nWebhookUrl = import.meta.env.VITE_N8N_MEAL_WEBHOOK_URL?.trim()
+    || "https://n8n.srv929626.hstgr.cloud/webhook/meal-ai";
+const directN8nMode = Boolean(directN8nWebhookUrl);
 
 type DirectWebhookPayload = {
     output?: unknown;
@@ -136,7 +138,7 @@ const UploadFiles = () => {
             if (directN8nMode) {
                 const formData = new FormData();
                 formData.append("file", file);
-                const response = await fetch("/api/meal-analysis", { method: "POST", body: formData });
+                const response = await fetch(directN8nWebhookUrl, { method: "POST", body: formData });
                 const payload: unknown = await response.json().catch(() => null);
 
                 if (!response.ok) {
