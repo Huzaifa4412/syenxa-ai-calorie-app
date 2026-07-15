@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
     Activity,
     AlertTriangle,
@@ -15,6 +15,7 @@ import {
     ScanLine,
     Sparkles,
     Wheat,
+    X,
     Zap,
 } from "lucide-react";
 import { useAuth } from "../auth/use-auth";
@@ -72,6 +73,10 @@ const UploadFiles = () => {
     const [loading, setLoading] = useState(false);
     const [imagePreview, setImagePreview] = useState<string | null>(null);
     const [dragActive, setDragActive] = useState(false);
+    const [cameraOpen, setCameraOpen] = useState(false);
+    const [cameraReady, setCameraReady] = useState(false);
+    const [cameraError, setCameraError] = useState<string | null>(null);
+    const videoRef = useRef<HTMLVideoElement>(null);
     const [, refreshClock] = useState(0);
 
     useEffect(() => {
@@ -134,6 +139,60 @@ const UploadFiles = () => {
         };
     }, []);
 
+    useEffect(() => {
+        if (!cameraOpen) return;
+
+        let active = true;
+        let stream: MediaStream | null = null;
+        const videoElement = videoRef.current;
+        const previousOverflow = document.body.style.overflow;
+        const closeOnEscape = (event: KeyboardEvent) => {
+            if (event.key === "Escape") setCameraOpen(false);
+        };
+
+        document.body.style.overflow = "hidden";
+        document.addEventListener("keydown", closeOnEscape);
+
+        const startCamera = async () => {
+            if (!navigator.mediaDevices?.getUserMedia) {
+                setCameraError("Live camera is not supported in this browser. Use the device camera option below.");
+                return;
+            }
+
+            try {
+                stream = await navigator.mediaDevices.getUserMedia({
+                    audio: false,
+                    video: { facingMode: { ideal: "environment" } },
+                });
+
+                if (!active) {
+                    stream.getTracks().forEach((track) => track.stop());
+                    return;
+                }
+
+                if (videoElement) {
+                    videoElement.srcObject = stream;
+                    await videoElement.play();
+                }
+            } catch {
+                if (active) {
+                    setCameraError("Camera access was blocked or unavailable. Allow permission, or use the device camera option below.");
+                }
+            }
+        };
+
+        void startCamera();
+
+        return () => {
+            active = false;
+            setCameraReady(false);
+            stream?.getTracks().forEach((track) => track.stop());
+            if (videoElement) videoElement.srcObject = null;
+            document.body.style.overflow = previousOverflow;
+            document.removeEventListener("keydown", closeOnEscape);
+        };
+    }, [cameraOpen]);
+
     const handleUpload = async (file: File) => {
         if (!directN8nMode && !user) {
             setError("Sign in before scanning a meal.");
@@ -194,6 +253,42 @@ const UploadFiles = () => {
         } finally {
             setLoading(false);
         }
+    };
+
+    const openCamera = () => {
+        setCameraError(null);
+        setCameraReady(false);
+        setCameraOpen(true);
+    };
+
+    const captureCameraPhoto = () => {
+        const video = videoRef.current;
+        if (!video?.videoWidth || !video.videoHeight) {
+            setCameraError("The camera is still starting. Wait a moment and try again.");
+            return;
+        }
+
+        const canvas = document.createElement("canvas");
+        canvas.width = video.videoWidth;
+        canvas.height = video.videoHeight;
+        const context = canvas.getContext("2d");
+
+        if (!context) {
+            setCameraError("The photo could not be captured. Please use the gallery instead.");
+            return;
+        }
+
+        context.drawImage(video, 0, 0, canvas.width, canvas.height);
+        canvas.toBlob((blob) => {
+            if (!blob) {
+                setCameraError("The photo could not be captured. Please try again.");
+                return;
+            }
+
+            const photo = new File([blob], `huzzi-meal-${Date.now()}.jpg`, { type: "image/jpeg" });
+            setCameraOpen(false);
+            void handleUpload(photo);
+        }, "image/jpeg", 0.92);
     };
 
     const handleDrag = (e: React.DragEvent) => {
@@ -350,11 +445,30 @@ const UploadFiles = () => {
                         >
                             <input
                                 type="file"
-                                accept="image/*"
-                                onChange={(e) => e.target.files && handleUpload(e.target.files[0])}
+                                accept="image/jpeg,image/png,image/webp"
+                                onChange={(e) => {
+                                    if (e.target.files?.[0]) void handleUpload(e.target.files[0]);
+                                    e.target.value = "";
+                                }}
                                 className="file-input"
-                                id="file-upload"
-                                aria-label="Upload a meal photo"
+                                id="gallery-upload"
+                                aria-label="Choose a meal photo from the gallery"
+                                disabled={quotaExhausted || loading}
+                            />
+                            <input
+                                type="file"
+                                accept="image/*"
+                                capture="environment"
+                                onChange={(e) => {
+                                    if (e.target.files?.[0]) {
+                                        setCameraOpen(false);
+                                        void handleUpload(e.target.files[0]);
+                                    }
+                                    e.target.value = "";
+                                }}
+                                className="file-input"
+                                id="device-camera-capture"
+                                aria-label="Take a meal photo with the device camera"
                                 disabled={quotaExhausted || loading}
                             />
 
@@ -364,7 +478,7 @@ const UploadFiles = () => {
                                     <div className="scan-corners" aria-hidden="true"><i /><i /><i /><i /></div>
                                     {loading && <div className="scan-line" aria-hidden="true" />}
                                     {!quotaExhausted && (
-                                        <label className="change-photo" htmlFor="file-upload">
+                                        <label className="change-photo" htmlFor="gallery-upload">
                                             <ImagePlus size={17} /> Change photo
                                         </label>
                                     )}
@@ -376,12 +490,19 @@ const UploadFiles = () => {
                                     <span className="drop-help">Your next scan unlocks in {getResetCopy(quota?.resetAt ?? null)}.</span>
                                 </div>
                             ) : (
-                                <label className="drop-content" htmlFor="file-upload">
+                                <div className="drop-content">
                                     <span className="upload-icon"><Camera aria-hidden="true" /></span>
                                     <span className="drop-title">Drop your meal here</span>
-                                    <span className="drop-help">or choose a photo from your device</span>
-                                    <span className="browse-button">Choose photo <ChevronRight size={17} /></span>
-                                </label>
+                                    <span className="drop-help">Take a fresh photo or choose one from your device.</span>
+                                    <div className="upload-actions">
+                                        <button type="button" className="capture-button" onClick={openCamera} disabled={loading}>
+                                            <Camera size={17} /> Take live photo
+                                        </button>
+                                        <label className="browse-button" htmlFor="gallery-upload">
+                                            <ImagePlus size={17} /> Choose gallery <ChevronRight size={16} />
+                                        </label>
+                                    </div>
+                                </div>
                             )}
                         </div>
 
@@ -534,6 +655,54 @@ const UploadFiles = () => {
                 </div>
                 )}
             </section>
+
+            {cameraOpen && (
+                <div className="camera-overlay" role="presentation" onMouseDown={(event) => {
+                    if (event.target === event.currentTarget) setCameraOpen(false);
+                }}>
+                    <section className="camera-dialog" role="dialog" aria-modal="true" aria-labelledby="camera-title">
+                        <header className="camera-dialog-header">
+                            <div>
+                                <p className="section-kicker">Live camera</p>
+                                <h2 id="camera-title">Frame the full plate</h2>
+                            </div>
+                            <button type="button" className="camera-close" onClick={() => setCameraOpen(false)} aria-label="Close camera">
+                                <X />
+                            </button>
+                        </header>
+
+                        <div className={`camera-viewport ${cameraReady ? "is-ready" : ""}`}>
+                            <video
+                                ref={videoRef}
+                                muted
+                                playsInline
+                                autoPlay
+                                onCanPlay={() => setCameraReady(true)}
+                                aria-label="Live camera preview"
+                            />
+                            {!cameraReady && !cameraError && (
+                                <div className="camera-starting"><ScanLine /><span>Starting camera</span></div>
+                            )}
+                            {cameraError && (
+                                <div className="camera-fallback" role="alert">
+                                    <AlertTriangle />
+                                    <p>{cameraError}</p>
+                                    <label htmlFor="device-camera-capture">Open device camera</label>
+                                </div>
+                            )}
+                            <div className="camera-frame" aria-hidden="true"><i /><i /><i /><i /></div>
+                        </div>
+
+                        <div className="camera-controls">
+                            <p>Use natural light and keep every item visible.</p>
+                            <button type="button" className="shutter-button" onClick={captureCameraPhoto} disabled={!cameraReady || Boolean(cameraError)}>
+                                <span /><b>Capture meal</b>
+                            </button>
+                            <label className="camera-gallery-link" htmlFor="gallery-upload">Choose from gallery instead</label>
+                        </div>
+                    </section>
+                </div>
+            )}
 
             <section className="nutrition-marquee" aria-label="Nutrition categories included in an analysis" data-reveal="fade">
                 <div className="marquee-track">
