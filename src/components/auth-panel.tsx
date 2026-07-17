@@ -19,7 +19,7 @@ const AuthPanel = () => {
       : undefined;
   });
   const captchaSiteKey = import.meta.env.VITE_HCAPTCHA_SITE_KEY?.trim();
-  const captchaRequired = import.meta.env.PROD;
+  const captchaRequired = Boolean(captchaSiteKey);
 
   const run = async (action: () => Promise<void>) => {
     setBusy(true);
