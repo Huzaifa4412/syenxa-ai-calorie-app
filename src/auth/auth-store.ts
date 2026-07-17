@@ -6,7 +6,7 @@ export type AuthContextValue = {
   loading: boolean;
   session: Session | null;
   user: User | null;
-  sendMagicLink: (email: string, captchaToken?: string) => Promise<void>;
+  sendMagicLink: (email: string, captchaToken: string) => Promise<void>;
   signOut: () => Promise<void>;
 };
 

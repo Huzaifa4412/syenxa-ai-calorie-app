@@ -28,35 +28,6 @@ const MAX_FILE_SIZE = 25 * 1024 * 1024;
 const MAX_IMAGE_DIMENSION = 2048;
 const ALLOWED_IMAGE_TYPES = new Set(["image/jpeg", "image/jpg", "image/png", "image/webp"]);
 const ALLOWED_IMAGE_EXTENSIONS = new Set(["jpg", "jpeg", "png", "webp"]);
-const directN8nWebhookUrl = import.meta.env.VITE_N8N_MEAL_WEBHOOK_URL?.trim()
-    || "https://n8n.srv929626.hstgr.cloud/webhook/meal-ai";
-const directN8nMode = Boolean(directN8nWebhookUrl);
-
-type DirectWebhookPayload = {
-    output?: unknown;
-    food?: unknown;
-    total?: unknown;
-};
-
-const isMealAnalysis = (value: unknown): value is MealAnalysis => {
-    if (!value || typeof value !== "object") return false;
-
-    const candidate = value as { food?: unknown; total?: unknown };
-    if (!Array.isArray(candidate.food) || !candidate.total || typeof candidate.total !== "object") return false;
-
-    const total = candidate.total as Record<string, unknown>;
-    return ["calories", "protein", "carbs", "fat"].every((key) => typeof total[key] === "number");
-};
-
-const getMealAnalysisFromWebhook = (payload: unknown): MealAnalysis | null => {
-    const responseItem = Array.isArray(payload) ? payload[0] : payload;
-    if (!responseItem || typeof responseItem !== "object") return null;
-
-    const response = responseItem as DirectWebhookPayload;
-    const candidate = response.output ?? response;
-    return isMealAnalysis(candidate) ? candidate : null;
-};
-
 const getResetCopy = (resetAt: string | null) => {
     if (!resetAt) return "within 24 hours";
     const milliseconds = new Date(resetAt).getTime() - Date.now();
@@ -119,6 +90,7 @@ const UploadFiles = () => {
     const { user, loading: authLoading, signOut } = useAuth();
     const [result, setResult] = useState<MealAnalysis | null>(null);
     const [quota, setQuota] = useState<ScanQuota | null>(null);
+    const [quotaLoading, setQuotaLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [loading, setLoading] = useState(false);
     const [imagePreview, setImagePreview] = useState<string | null>(null);
@@ -130,13 +102,9 @@ const UploadFiles = () => {
     const [, refreshClock] = useState(0);
 
     useEffect(() => {
-        if (directN8nMode) {
-            setQuota(null);
-            return;
-        }
-
         if (!user) {
             setQuota(null);
+            setQuotaLoading(false);
             setResult(null);
             setImagePreview(null);
             setError(null);
@@ -144,12 +112,16 @@ const UploadFiles = () => {
         }
 
         let active = true;
+        setQuotaLoading(true);
         getScanQuota()
             .then((nextQuota) => {
                 if (active) setQuota(nextQuota);
             })
             .catch(() => {
                 if (active) setError("We couldn't load your scan allowance. Refresh and try again.");
+            })
+            .finally(() => {
+                if (active) setQuotaLoading(false);
             });
 
         return () => { active = false; };
@@ -157,8 +129,28 @@ const UploadFiles = () => {
 
     useEffect(() => {
         if (!quota?.resetAt || quota.remaining > 0) return;
-        const timer = window.setInterval(() => refreshClock((value) => value + 1), 30_000);
-        return () => window.clearInterval(timer);
+        let active = true;
+        const refreshQuotaClock = () => {
+            refreshClock((value) => value + 1);
+            if (new Date(quota.resetAt as string).getTime() > Date.now()) return;
+
+            setQuotaLoading(true);
+            void getScanQuota()
+                .then((nextQuota) => {
+                    if (active) setQuota(nextQuota);
+                })
+                .catch(() => {
+                    if (active) setError("We couldn't refresh your scan allowance. Refresh and try again.");
+                })
+                .finally(() => {
+                    if (active) setQuotaLoading(false);
+                });
+        };
+        const timer = window.setInterval(refreshQuotaClock, 30_000);
+        return () => {
+            active = false;
+            window.clearInterval(timer);
+        };
     }, [quota]);
 
     useEffect(() => {
@@ -250,11 +242,15 @@ const UploadFiles = () => {
     }, [cameraOpen]);
 
     const handleUpload = async (file: File) => {
-        if (!directN8nMode && !user) {
+        if (!user) {
             setError("Sign in before scanning a meal.");
             return;
         }
-        if (!directN8nMode && quota?.remaining === 0) {
+        if (quotaLoading || !quota) {
+            setError("Your scan allowance is still loading. Please wait a moment.");
+            return;
+        }
+        if (quota.remaining === 0) {
             setError(`Your free scans reset in ${getResetCopy(quota.resetAt)}.`);
             return;
         }
@@ -282,33 +278,9 @@ const UploadFiles = () => {
             }
             setImagePreview(URL.createObjectURL(preparedFile));
 
-            if (directN8nMode) {
-                const formData = new FormData();
-                formData.append("file", preparedFile);
-                const response = await fetch(directN8nWebhookUrl, { method: "POST", body: formData });
-                const payload: unknown = await response.json().catch(() => null);
-
-                if (!response.ok) {
-                    if (response.status === 413) {
-                        throw new Error("The uploaded image is too large for the scanner. Choose a smaller photo.");
-                    }
-                    if (response.status === 415) {
-                        throw new Error("The workflow rejected this image format. Use JPG, JPEG, PNG, or WEBP.");
-                    }
-                    throw new Error(`The nutrition workflow returned an error (HTTP ${response.status}). Try again.`);
-                }
-
-                const output = getMealAnalysisFromWebhook(payload);
-                if (!output) {
-                    throw new Error("The workflow responded, but no valid nutrition result was returned. Try another photo.");
-                }
-
-                setResult(output);
-            } else {
-                const data = await analyzeMeal(preparedFile);
-                setResult(data.output);
-                setQuota(data.quota);
-            }
+            const data = await analyzeMeal(preparedFile);
+            setResult(data.output);
+            setQuota(data.quota);
         } catch (caught) {
             if (caught instanceof AnalysisApiError) {
                 if (caught.quota) setQuota(caught.quota);
@@ -374,13 +346,13 @@ const UploadFiles = () => {
         e.preventDefault();
         e.stopPropagation();
         setDragActive(false);
-        if ((directN8nMode || quota?.remaining !== 0) && e.dataTransfer.files && e.dataTransfer.files[0]) {
-            handleUpload(e.dataTransfer.files[0]);
+        if (!quotaLoading && quota?.remaining !== 0 && e.dataTransfer.files?.[0]) {
+            void handleUpload(e.dataTransfer.files[0]);
         }
     };
 
-    const quotaExhausted = !directN8nMode && quota?.remaining === 0;
-    const canScan = directN8nMode || Boolean(user);
+    const quotaExhausted = quota?.remaining === 0;
+    const canScan = Boolean(user);
     const displayName = user?.user_metadata.full_name || user?.user_metadata.name || user?.email?.split("@")[0];
 
     const macroItems = result
@@ -400,16 +372,16 @@ const UploadFiles = () => {
                     <span className="brand-mark"><Leaf aria-hidden="true" /></span>
                     <span className="brand-name">Syenxa Calories</span>
                 </a>
-                {directN8nMode ? (
-                    <div className="system-status test-status" aria-label="n8n direct workflow mode enabled">
-                        <span className="status-dot" />
-                        n8n workflow connected
-                    </div>
-                ) : user ? (
+                {user ? (
                     <div className="user-tools">
                         <span className="quota-chip"><b>{quota?.remaining ?? "..."}</b> / 3 scans left</span>
                         <span className="user-name" title={user.email}>{displayName}</span>
-                        <button className="sign-out-button" type="button" onClick={() => signOut()} aria-label="Sign out">
+                        <button
+                            className="sign-out-button"
+                            type="button"
+                            onClick={() => void signOut().catch(() => setError("Sign out failed. Please try again."))}
+                            aria-label="Sign out"
+                        >
                             <LogOut size={17} />
                         </button>
                     </div>
@@ -471,17 +443,17 @@ const UploadFiles = () => {
                         <h2>{!canScan ? "Your free scans start here" : result ? "Your nutrition snapshot" : "Start with a clear photo"}</h2>
                     </div>
                     <span className="workspace-step">
-                        {directN8nMode
-                            ? "Live analysis ready"
-                            : user
+                        {user
                             ? quotaExhausted
                                 ? `Resets in ${getResetCopy(quota?.resetAt ?? null)}`
-                                : `${quota?.remaining ?? "..."} of 3 scans available`
+                                : quotaLoading
+                                    ? "Loading scan allowance"
+                                    : `${quota?.remaining ?? "..."} of 3 scans available`
                             : "Account required"}
                     </span>
                 </div>
 
-                {!directN8nMode && authLoading ? (
+                {authLoading ? (
                     <div className="auth-loading" aria-live="polite">
                         <span className="loading-mark"><ScanLine /></span>
                         <p>Checking your session…</p>
@@ -521,7 +493,7 @@ const UploadFiles = () => {
                                 className="file-input"
                                 id="gallery-upload"
                                 aria-label="Choose a meal photo from the gallery"
-                                disabled={quotaExhausted || loading}
+                                disabled={quotaExhausted || quotaLoading || loading}
                                 hidden
                             />
                             <input
@@ -538,7 +510,7 @@ const UploadFiles = () => {
                                 className="file-input"
                                 id="device-camera-capture"
                                 aria-label="Take a meal photo with the device camera"
-                                disabled={quotaExhausted || loading}
+                                disabled={quotaExhausted || quotaLoading || loading}
                                 hidden
                             />
 
@@ -565,7 +537,7 @@ const UploadFiles = () => {
                                     <span className="drop-title">Drop your meal here</span>
                                     <span className="drop-help">Take a fresh photo or choose one from your device.</span>
                                     <div className="upload-actions">
-                                        <button type="button" className="capture-button" onClick={openCamera} disabled={loading}>
+                                        <button type="button" className="capture-button" onClick={openCamera} disabled={quotaLoading || loading}>
                                             <Camera size={17} /> Take live photo
                                         </button>
                                         <label className="browse-button" htmlFor="gallery-upload">
@@ -809,71 +781,102 @@ const UploadFiles = () => {
                 </div>
             </section>
 
-            <section className="process-story content-section" data-reveal="rise">
-                <div className="section-intro">
-                    <p className="section-kicker">From photo to context</p>
-                    <h2>A clearer look at<br />the food in front of you.</h2>
-                    <p>Syenxa Calories turns visible meal details into an organized estimate you can understand at a glance.</p>
-                </div>
+            <section className="context-story content-section" data-reveal="rise">
+                <header className="context-heading">
+                    <div>
+                        <p className="section-kicker">From photo to context</p>
+                        <span className="context-index" aria-hidden="true">01 — 02</span>
+                    </div>
+                    <div>
+                        <h2>A clearer look at<br />the food in front of you.</h2>
+                        <p>Syenxa Calories turns visible meal details into an organized estimate you can understand at a glance.</p>
+                    </div>
+                </header>
 
-                <div className="process-grid">
-                    <figure className="process-image" data-reveal-child>
+                <div className="context-composition">
+                    <figure className="meal-lens" data-reveal-child>
                         <img
-                            src="https://images.unsplash.com/photo-1540189549336-e6e99c3679fe?auto=format&fit=crop&w=1400&q=88"
+                            src="https://images.unsplash.com/photo-1540189549336-e6e99c3679fe?auto=format&fit=crop&w=1600&q=90"
                             alt="A colorful bowl filled with vegetables"
                             loading="lazy"
                             decoding="async"
                         />
+                        <div className="meal-lens-shade" aria-hidden="true" />
+                        <div className="lens-status"><span /> Meal in frame</div>
+                        <figcaption>
+                            <div className="lens-evidence">
+                                <span>Image evidence</span>
+                                <strong>3 visible food groups</strong>
+                            </div>
+                            <div className="lens-foods" aria-label="Visible food groups">
+                                <span>Leafy greens</span>
+                                <span>Plant protein</span>
+                                <span>Fresh vegetables</span>
+                            </div>
+                        </figcaption>
                     </figure>
 
-                    <article className="process-card process-card-scan" data-reveal-child>
-                        <span className="process-icon"><ScanLine aria-hidden="true" /></span>
-                        <div>
-                            <h3>Visible details become useful structure.</h3>
-                            <p>The workflow identifies foods and estimates portions before calculating the nutrition breakdown.</p>
-                        </div>
-                    </article>
+                    <div className="context-readout">
+                        <article className="readout-card readout-detect" data-reveal-child>
+                            <div className="readout-topline"><span>01 / Detect</span><ScanLine aria-hidden="true" /></div>
+                            <div>
+                                <h3>Visible details become useful structure.</h3>
+                                <p>The workflow identifies foods and estimates portions before calculating the nutrition breakdown.</p>
+                            </div>
+                            <div className="readout-tags" aria-label="Detected meal details">
+                                <span>Foods</span><span>Portions</span><span>Preparation</span>
+                            </div>
+                        </article>
 
-                    <article className="process-card process-card-context" data-reveal-child>
-                        <span className="process-icon"><Activity aria-hidden="true" /></span>
-                        <div>
-                            <h3>More than one calorie number.</h3>
-                            <p>See individual foods, macros, micronutrients, assumptions, and confidence in the same result.</p>
-                        </div>
-                    </article>
+                        <article className="readout-card readout-explain" data-reveal-child>
+                            <div className="readout-topline"><span>02 / Explain</span><Activity aria-hidden="true" /></div>
+                            <div>
+                                <h3>More than one calorie number.</h3>
+                                <p>See individual foods, macros, micronutrients, assumptions, and confidence in the same result.</p>
+                            </div>
+                            <div className="macro-preview" aria-hidden="true">
+                                <span>Protein</span>
+                                <span>Carbs</span>
+                                <span>Fats</span>
+                            </div>
+                        </article>
+                    </div>
                 </div>
             </section>
 
-            <section className="honesty-section content-section" data-reveal="rise">
-                <div className="honesty-heading">
-                    <span className="honesty-icon"><Check aria-hidden="true" /></span>
-                    <p className="section-kicker">Designed for honest estimates</p>
-                    <h2>Useful guidance.<br /><em>Clear limits.</em></h2>
+            <section className="truth-ledger content-section" data-reveal="rise">
+                <div className="truth-heading">
+                    <div className="truth-seal"><Check aria-hidden="true" /><span>Estimate<br />principles</span></div>
+                    <div>
+                        <p className="section-kicker">Designed for honest estimates</p>
+                        <h2>Useful guidance.<br /><em>Clear limits.</em></h2>
+                    </div>
+                    <p className="truth-summary">The result separates what can be seen from what has to be assumed—so the estimate stays useful without pretending to be exact.</p>
                 </div>
 
-                <div className="honesty-notes">
+                <div className="truth-notes">
                     <article data-reveal-child>
-                        <span>What the image shows</span>
-                        <h3>Evidence first</h3>
+                        <span className="truth-code">Shown</span>
+                        <div><span>What the image shows</span><h3>Evidence first</h3></div>
                         <p>The analysis is grounded in visible ingredients and portions, not hidden recipe information.</p>
                     </article>
                     <article data-reveal-child>
-                        <span>What may vary</span>
-                        <h3>Assumptions included</h3>
+                        <span className="truth-code">Variable</span>
+                        <div><span>What may vary</span><h3>Assumptions included</h3></div>
                         <p>Preparation method, sauces, oils, and exact serving weights can change the final nutrition values.</p>
                     </article>
                     <article data-reveal-child>
-                        <span>How to use it</span>
-                        <h3>Awareness, not advice</h3>
+                        <span className="truth-code">Purpose</span>
+                        <div><span>How to use it</span><h3>Awareness, not advice</h3></div>
                         <p>Use the result as practical food awareness. It is not laboratory analysis or medical advice.</p>
                     </article>
                 </div>
             </section>
 
-            <footer className="footer" data-reveal="fade">
-                <div className="footer-brand"><Leaf size={18} /> Syenxa Calories</div>
+            <footer className="footer footer-v2" data-reveal="fade">
+                <div className="footer-brand"><span><Leaf size={18} /></span> Syenxa Calories</div>
                 <p>Nutrition estimates are for general guidance and may vary by portion and preparation.</p>
-                <span>Built for better food awareness.</span>
+                <strong>Built for better<br />food awareness.</strong>
             </footer>
         </main>
     );

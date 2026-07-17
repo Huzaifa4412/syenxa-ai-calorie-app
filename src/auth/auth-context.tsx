@@ -16,12 +16,17 @@ export const AuthProvider = ({ children }: PropsWithChildren) => {
     }
 
     let mounted = true;
-    supabase.auth.getSession().then(({ data }) => {
-      if (mounted) {
-        setSession(data.session);
-        setLoading(false);
-      }
-    });
+    void supabase.auth.getSession()
+      .then(({ data, error }) => {
+        if (!mounted) return;
+        setSession(error ? null : data.session);
+      })
+      .catch(() => {
+        if (mounted) setSession(null);
+      })
+      .finally(() => {
+        if (mounted) setLoading(false);
+      });
 
     const { data: listener } = supabase.auth.onAuthStateChange((_event, nextSession) => {
       setSession(nextSession);
@@ -42,11 +47,11 @@ export const AuthProvider = ({ children }: PropsWithChildren) => {
     sendMagicLink: async (email, captchaToken) => {
       if (!supabase) throw new Error("Supabase is not configured.");
       const { error } = await supabase.auth.signInWithOtp({
-        email,
+        email: email.trim().toLowerCase(),
         options: {
           shouldCreateUser: true,
           emailRedirectTo: `${window.location.origin}${window.location.pathname}`,
-          captchaToken,
+          captchaToken: captchaToken || undefined,
         },
       });
       if (error) throw error;

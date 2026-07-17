@@ -1,6 +1,7 @@
 import { createClient } from "npm:@supabase/supabase-js@2";
 
 const MAX_FILE_SIZE = 10 * 1024 * 1024;
+const UPSTREAM_TIMEOUT_MS = 30_000;
 const ALLOWED_IMAGE_TYPES = new Set(["image/jpeg", "image/png", "image/webp"]);
 
 type QuotaRow = {
@@ -56,6 +57,36 @@ const normalizeQuota = (row: QuotaRow) => ({
   resetAt: row.reset_at,
 });
 
+const hasValidImageSignature = async (file: File) => {
+  const bytes = new Uint8Array(await file.slice(0, 12).arrayBuffer());
+  if (file.type === "image/jpeg") {
+    return bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff;
+  }
+  if (file.type === "image/png") {
+    return [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]
+      .every((value, index) => bytes[index] === value);
+  }
+  if (file.type === "image/webp") {
+    return new TextDecoder().decode(bytes.slice(0, 4)) === "RIFF"
+      && new TextDecoder().decode(bytes.slice(8, 12)) === "WEBP";
+  }
+  return false;
+};
+
+const isMealAnalysis = (value: unknown) => {
+  if (!value || typeof value !== "object") return false;
+  const candidate = value as Record<string, unknown>;
+  if (!Array.isArray(candidate.food) || !candidate.total || typeof candidate.total !== "object") {
+    return false;
+  }
+  const total = candidate.total as Record<string, unknown>;
+  return ["calories", "protein", "carbs", "fat"]
+    .every((key) => {
+      const value = total[key];
+      return typeof value === "number" && Number.isFinite(value);
+    });
+};
+
 Deno.serve(async (request) => {
   const origin = request.headers.get("origin");
   const allowedOrigins = getAllowedOrigins();
@@ -102,15 +133,22 @@ Deno.serve(async (request) => {
     return json({ error: "Upload a valid multipart form." }, 400, origin);
   }
 
-  const file = formData.get("file");
-  if (!(file instanceof File)) {
+  const files = formData.getAll("file");
+  if (files.length !== 1 || !(files[0] instanceof File)) {
     return json({ error: "A meal image is required." }, 400, origin);
+  }
+  const file = files[0];
+  if (file.size <= 0) {
+    return json({ error: "The meal image is empty." }, 400, origin);
   }
   if (!ALLOWED_IMAGE_TYPES.has(file.type)) {
     return json({ error: "Only JPG, PNG, and WEBP images are supported." }, 415, origin);
   }
-  if (file.size <= 0 || file.size > MAX_FILE_SIZE) {
+  if (file.size > MAX_FILE_SIZE) {
     return json({ error: "The image must be smaller than 10 MB." }, 413, origin);
+  }
+  if (!(await hasValidImageSignature(file))) {
+    return json({ error: "The uploaded file is not a valid supported image." }, 415, origin);
   }
 
   const { data: quotaData, error: quotaError } = await supabase.rpc("consume_scan_quota", {
@@ -138,15 +176,22 @@ Deno.serve(async (request) => {
       method: "POST",
       headers: { "X-Syenxa-Calories-Webhook-Secret": n8nWebhookSecret },
       body: upstreamForm,
+      signal: AbortSignal.timeout(UPSTREAM_TIMEOUT_MS),
     });
   } catch {
     return json({ error: "The analysis service is temporarily unavailable.", quota }, 502, origin);
   }
 
-  const upstreamPayload = await upstream.json().catch(() => null);
-  if (!upstream.ok || !upstreamPayload) {
+  const upstreamPayload: unknown = await upstream.json().catch(() => null);
+  if (!upstream.ok || !upstreamPayload || typeof upstreamPayload !== "object") {
     return json({ error: "The analysis service could not process this meal.", quota }, 502, origin);
   }
 
-  return json({ output: upstreamPayload.output ?? null, quota }, 200, origin);
+  const upstreamRecord = upstreamPayload as Record<string, unknown>;
+  const output = upstreamRecord.output ?? upstreamPayload;
+  if (!isMealAnalysis(output)) {
+    return json({ error: "The analysis service returned an invalid result.", quota }, 502, origin);
+  }
+
+  return json({ output, quota }, 200, origin);
 });

@@ -1,13 +1,25 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
+import HCaptcha from "@hcaptcha/react-hcaptcha";
 import { ArrowRight, CheckCircle2, KeyRound, Mail, ShieldCheck } from "lucide-react";
 import { useAuth } from "../auth/use-auth";
 
 const AuthPanel = () => {
   const { configured, sendMagicLink } = useAuth();
+  const captchaRef = useRef<HCaptcha>(null);
   const [email, setEmail] = useState("");
+  const [captchaToken, setCaptchaToken] = useState("");
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string>();
-  const [error, setError] = useState<string>();
+  const [error, setError] = useState<string | undefined>(() => {
+    const authParams = new URLSearchParams(
+      `${window.location.search}&${window.location.hash.replace(/^#/, "")}`,
+    );
+    return authParams.has("error") || authParams.has("error_code")
+      ? "That sign-in link is invalid or has expired. Request a new link below."
+      : undefined;
+  });
+  const captchaSiteKey = import.meta.env.VITE_HCAPTCHA_SITE_KEY?.trim();
+  const captchaRequired = import.meta.env.PROD;
 
   const run = async (action: () => Promise<void>) => {
     setBusy(true);
@@ -16,8 +28,12 @@ const AuthPanel = () => {
     try {
       await action();
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "Sign in failed. Please try again.");
+      setError(caught instanceof Error && caught.message.startsWith("Complete the security check")
+        ? caught.message
+        : "We couldn't send a sign-in link. Please wait a moment and try again.");
     } finally {
+      captchaRef.current?.resetCaptcha();
+      setCaptchaToken("");
       setBusy(false);
     }
   };
@@ -51,8 +67,12 @@ const AuthPanel = () => {
         onSubmit={(event) => {
           event.preventDefault();
           run(async () => {
-            await sendMagicLink(email.trim());
-            setMessage(`A secure sign-in link was sent to ${email.trim()}.`);
+            const normalizedEmail = email.trim().toLowerCase();
+            if (captchaRequired && !captchaToken) {
+              throw new Error("Complete the security check before continuing.");
+            }
+            await sendMagicLink(normalizedEmail, captchaToken);
+            setMessage("If the address can receive email, a secure sign-in link is on its way.");
           });
         }}
       >
@@ -70,10 +90,26 @@ const AuthPanel = () => {
           />
         </div>
 
+        {captchaSiteKey ? (
+          <div className="captcha-field">
+            <HCaptcha
+              ref={captchaRef}
+              sitekey={captchaSiteKey}
+              onVerify={setCaptchaToken}
+              onExpire={() => setCaptchaToken("")}
+              onError={() => setCaptchaToken("")}
+            />
+          </div>
+        ) : captchaRequired ? (
+          <p className="auth-message error" role="alert">
+            The security check is not configured. Please try again later.
+          </p>
+        ) : null}
+
         <button
           className="magic-link-button"
           type="submit"
-          disabled={busy || !email.trim()}
+          disabled={busy || !email.trim() || (captchaRequired && (!captchaSiteKey || !captchaToken))}
         >
           {busy ? "Sending link…" : "Email me a sign-in link"}
           <ArrowRight size={17} />

@@ -14,6 +14,10 @@ dist-ssr
 .env
 .env.*
 !.env.example
+.playwright-cli/
+output/
+.vercel/
+supabase/.temp/
 
 # Editor directories and files
 .vscode/*

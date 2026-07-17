@@ -2,8 +2,6 @@
 
 Syenxa Calories turns a meal photo into a calorie and macro breakdown. Users must sign in and receive three free analyses during any rolling 24-hour period.
 
-> Current testing mode sends images directly to the production n8n webhook and bypasses authentication. The Supabase files remain available for re-enabling protected quotas later.
-
 ## Architecture
 
 ```text
@@ -31,6 +29,7 @@ Requirements: Node.js, a Supabase project, and access to the existing n8n workfl
    ```env
    VITE_SUPABASE_URL=https://YOUR_PROJECT.supabase.co
    VITE_SUPABASE_PUBLISHABLE_KEY=YOUR_SUPABASE_PUBLISHABLE_KEY
+   VITE_HCAPTCHA_SITE_KEY=YOUR_HCAPTCHA_SITE_KEY
    ```
 
 3. Apply the migration in `supabase/migrations` with the Supabase CLI or SQL editor.
@@ -39,6 +38,8 @@ Requirements: Node.js, a Supabase project, and access to the existing n8n workfl
 
    - Enable email magic-link sign-in.
    - Add the local and production site URLs to allowed redirect URLs.
+   - Enable hCaptcha and configure its secret key.
+   - Configure custom SMTP, a verified no-reply sender, and production Auth rate limits.
 
 5. Protect and rotate the n8n webhook using [n8n/PROTECTED_WEBHOOK.md](n8n/PROTECTED_WEBHOOK.md).
 
@@ -72,7 +73,7 @@ Requirements: Node.js, a Supabase project, and access to the existing n8n workfl
 ## Security notes
 
 - Never add the n8n URL, webhook secret, Supabase service-role key, or AI credentials to `VITE_*` variables.
-- `verify_jwt = false` in `supabase/config.toml` allows CORS preflight and current Supabase key formats; the function still verifies every bearer token with `auth.getUser()` before any quota or n8n call.
+- `verify_jwt = true` in `supabase/config.toml` rejects unauthenticated function calls at the platform boundary. The handler also resolves the bearer token with `auth.getUser()` before validation, quota, or n8n work.
 - The usage table has RLS enabled and no direct browser table permissions. Authenticated users can only use the controlled quota functions.
 - Disable the original public n8n webhook before release.
 
@@ -83,3 +84,14 @@ npm run lint
 npm run build
 npm audit
 ```
+
+Run database tests with `supabase test db`. To exercise the advisory lock against a deployed test project, provide a fresh authenticated test account and run:
+
+```bash
+SUPABASE_URL="https://YOUR_PROJECT.supabase.co" \
+SUPABASE_PUBLISHABLE_KEY="YOUR_PUBLISHABLE_KEY" \
+SUPABASE_TEST_ACCESS_TOKEN="TEST_USER_ACCESS_TOKEN" \
+npm run test:quota:concurrency
+```
+
+See [docs/AUTHENTICATION_OPERATIONS.md](docs/AUTHENTICATION_OPERATIONS.md) for production configuration, smoke tests, monitoring, rotation, and rollback.
