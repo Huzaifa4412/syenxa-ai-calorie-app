@@ -6,7 +6,7 @@ Syenxa Calories turns a meal photo into a calorie and macro breakdown. Users mus
 
 ```text
 React app
-  -> Supabase Auth (email magic link)
+  -> Supabase Auth (email and password)
   -> Supabase Edge Function (JWT, file validation, quota)
   -> protected n8n webhook (secret header)
   -> existing meal-analysis nodes
@@ -36,7 +36,8 @@ Requirements: Node.js, a Supabase project, and access to the existing n8n workfl
 
 4. In Supabase Auth:
 
-   - Enable email magic-link sign-in.
+   - Enable email/password sign-in.
+   - Disable email confirmation so new accounts can sign in immediately.
    - Add the local and production site URLs to allowed redirect URLs.
    - Enable hCaptcha and configure its secret key.
    - Configure custom SMTP, a verified no-reply sender, and production Auth rate limits.

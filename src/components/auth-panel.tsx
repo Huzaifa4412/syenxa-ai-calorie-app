@@ -1,55 +1,48 @@
-import { useEffect, useRef, useState } from "react";
-import HCaptcha from "@hcaptcha/react-hcaptcha";
-import { ArrowRight, CheckCircle2, KeyRound, Mail, ShieldCheck } from "lucide-react";
+import { useState } from "react";
+import { ArrowRight, Eye, EyeOff, KeyRound, LockKeyhole, Mail, ShieldCheck, UserPlus } from "lucide-react";
 import { useAuth } from "../auth/use-auth";
 
+type AuthMode = "sign-in" | "create";
+
 const AuthPanel = () => {
-  const { configured, sendMagicLink } = useAuth();
-  const captchaRef = useRef<HCaptcha>(null);
+  const { configured, signInWithPassword, createAccount } = useAuth();
+  const [mode, setMode] = useState<AuthMode>("sign-in");
   const [email, setEmail] = useState("");
-  const [captchaToken, setCaptchaToken] = useState("");
+  const [password, setPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
   const [busy, setBusy] = useState(false);
-  const [cooldownSeconds, setCooldownSeconds] = useState(0);
-  const [message, setMessage] = useState<string>();
-  const [error, setError] = useState<string | undefined>(() => {
-    const authParams = new URLSearchParams(
-      `${window.location.search}&${window.location.hash.replace(/^#/, "")}`,
-    );
-    return authParams.has("error") || authParams.has("error_code")
-      ? "That sign-in link is invalid or has expired. Request a new link below."
-      : undefined;
-  });
-  const captchaSiteKey = import.meta.env.VITE_HCAPTCHA_SITE_KEY?.trim();
-  const captchaRequired = Boolean(captchaSiteKey);
+  const [error, setError] = useState<string>();
 
-  useEffect(() => {
-    if (cooldownSeconds <= 0) return;
-    const timer = window.setInterval(() => {
-      setCooldownSeconds((current) => Math.max(0, current - 1));
-    }, 1_000);
-    return () => window.clearInterval(timer);
-  }, [cooldownSeconds]);
+  const changeMode = (nextMode: AuthMode) => {
+    setMode(nextMode);
+    setError(undefined);
+    setPassword("");
+  };
 
-  const run = async (action: () => Promise<void>) => {
+  const submit = async () => {
     setBusy(true);
     setError(undefined);
-    setMessage(undefined);
     try {
-      await action();
-    } catch (caught) {
-      const authError = caught as { status?: number; code?: string; message?: string };
-      const rateLimited = authError.status === 429 || authError.code?.includes("rate_limit");
-      if (rateLimited) {
-        setCooldownSeconds(30);
-        setError("A sign-in email was recently sent. Check your inbox or try again in 30 seconds.");
+      if (mode === "create") {
+        if (password.length < 8) throw new Error("Use at least 8 characters for your password.");
+        await createAccount(email, password);
       } else {
-        setError(caught instanceof Error && caught.message.startsWith("Complete the security check")
-          ? caught.message
-          : "We couldn't send a sign-in link. Please wait a moment and try again.");
+        await signInWithPassword(email, password);
+      }
+    } catch (caught) {
+      const authError = caught as { code?: string; message?: string };
+      if (authError.code === "invalid_credentials") {
+        setError("The email or password is incorrect.");
+      } else if (authError.code === "user_already_exists" || authError.message?.includes("already exists")) {
+        setError("An account with this email already exists. Sign in instead.");
+      } else if (authError.code === "weak_password" || authError.message?.startsWith("Use at least")) {
+        setError("Use at least 8 characters for your password.");
+      } else {
+        setError(mode === "create"
+          ? "We couldn't create your account. Check the details and try again."
+          : "We couldn't sign you in. Check the details and try again.");
       }
     } finally {
-      captchaRef.current?.resetCaptcha();
-      setCaptchaToken("");
       setBusy(false);
     }
   };
@@ -66,31 +59,29 @@ const AuthPanel = () => {
     );
   }
 
+  const creating = mode === "create";
+
   return (
     <div className="auth-gate">
       <div className="auth-heading">
-        <span className="auth-icon"><ShieldCheck /></span>
+        <span className="auth-icon">{creating ? <UserPlus /> : <ShieldCheck />}</span>
         <div>
-          <p className="section-kicker">Free account</p>
-          <h3>Sign in to scan<br />your next meal.</h3>
+          <p className="section-kicker">{creating ? "New account" : "Welcome back"}</p>
+          <h3>{creating ? <>Create your account.<br />Start scanning.</> : <>Sign in and scan<br />your next meal.</>}</h3>
         </div>
       </div>
 
-      <p className="auth-intro">Enter your email and we’ll send a secure sign-in link. Every account includes three AI meal analyses in a rolling 24-hour window.</p>
+      <p className="auth-intro">
+        {creating
+          ? "Create a free account with your email and password. No confirmation email is required."
+          : "Enter your email and password to continue to your meal scanner."}
+      </p>
 
       <form
-        className="email-form"
+        className="email-form password-auth-form"
         onSubmit={(event) => {
           event.preventDefault();
-          run(async () => {
-            const normalizedEmail = email.trim().toLowerCase();
-            if (captchaRequired && !captchaToken) {
-              throw new Error("Complete the security check before continuing.");
-            }
-            await sendMagicLink(normalizedEmail, captchaToken);
-            setCooldownSeconds(30);
-            setMessage("If the address can receive email, a secure sign-in link is on its way.");
-          });
+          void submit();
         }}
       >
         <label htmlFor="auth-email">Email address</label>
@@ -98,44 +89,56 @@ const AuthPanel = () => {
           <Mail size={18} aria-hidden="true" />
           <input
             id="auth-email"
+            name="email"
             type="email"
             value={email}
             onChange={(event) => setEmail(event.target.value)}
             placeholder="you@example.com"
             autoComplete="email"
+            spellCheck={false}
             required
           />
         </div>
 
-        {captchaSiteKey ? (
-          <div className="captcha-field">
-            <HCaptcha
-              ref={captchaRef}
-              sitekey={captchaSiteKey}
-              onVerify={setCaptchaToken}
-              onExpire={() => setCaptchaToken("")}
-              onError={() => setCaptchaToken("")}
-            />
-          </div>
-        ) : captchaRequired ? (
-          <p className="auth-message error" role="alert">
-            The security check is not configured. Please try again later.
-          </p>
-        ) : null}
+        <label htmlFor="auth-password">Password</label>
+        <div className="email-field password-field">
+          <LockKeyhole size={18} aria-hidden="true" />
+          <input
+            id="auth-password"
+            name="password"
+            type={showPassword ? "text" : "password"}
+            value={password}
+            onChange={(event) => setPassword(event.target.value)}
+            placeholder={creating ? "At least 8 characters" : "Your password"}
+            autoComplete={creating ? "new-password" : "current-password"}
+            minLength={creating ? 8 : 6}
+            required
+          />
+          <button
+            type="button"
+            className="password-visibility"
+            onClick={() => setShowPassword((visible) => !visible)}
+            aria-label={showPassword ? "Hide password" : "Show password"}
+          >
+            {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+          </button>
+        </div>
 
-        <button
-          className="magic-link-button"
-          type="submit"
-          disabled={busy || cooldownSeconds > 0 || !email.trim() || (captchaRequired && (!captchaSiteKey || !captchaToken))}
-        >
-          {busy ? "Sending link…" : cooldownSeconds > 0 ? `Send again in ${cooldownSeconds}s` : "Email me a sign-in link"}
-          <ArrowRight size={17} />
+        {error && <p className="auth-message error" role="alert">{error}</p>}
+
+        <button className="magic-link-button" type="submit" disabled={busy || !email.trim() || !password}>
+          {busy ? (creating ? "Creating account…" : "Signing in…") : (creating ? "Create account" : "Sign in")}
+          <ArrowRight size={17} aria-hidden="true" />
         </button>
       </form>
 
-      {message && <p className="auth-message success"><CheckCircle2 size={17} /> {message}</p>}
-      {error && <p className="auth-message error" role="alert">{error}</p>}
-      <p className="auth-footnote">No password to remember. Usage limits protect the service and keep the free tier available.</p>
+      <div className="auth-switch">
+        <span>{creating ? "Already have an account?" : "New to Syenxa Calories?"}</span>
+        <button type="button" onClick={() => changeMode(creating ? "sign-in" : "create")}>
+          {creating ? "Sign in" : "Create an account"}
+        </button>
+      </div>
+      <p className="auth-footnote">Your password stays protected by Supabase Auth. Every account includes 3 scans in a rolling 24-hour window.</p>
     </div>
   );
 };

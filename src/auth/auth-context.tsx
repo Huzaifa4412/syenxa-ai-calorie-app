@@ -44,17 +44,22 @@ export const AuthProvider = ({ children }: PropsWithChildren) => {
     loading,
     session,
     user: session?.user ?? null,
-    sendMagicLink: async (email, captchaToken) => {
+    signInWithPassword: async (email, password) => {
       if (!supabase) throw new Error("Supabase is not configured.");
-      const { error } = await supabase.auth.signInWithOtp({
+      const { error } = await supabase.auth.signInWithPassword({
         email: email.trim().toLowerCase(),
-        options: {
-          shouldCreateUser: true,
-          emailRedirectTo: `${window.location.origin}${window.location.pathname}`,
-          captchaToken: captchaToken || undefined,
-        },
+        password,
       });
       if (error) throw error;
+    },
+    createAccount: async (email, password) => {
+      if (!supabase) throw new Error("Supabase is not configured.");
+      const { data, error } = await supabase.auth.signUp({
+        email: email.trim().toLowerCase(),
+        password,
+      });
+      if (error) throw error;
+      if (!data.session) throw new Error("This account already exists. Sign in instead.");
     },
     signOut: async () => {
       if (!supabase) return;

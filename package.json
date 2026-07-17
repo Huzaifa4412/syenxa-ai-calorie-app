@@ -11,7 +11,6 @@
     "test:quota:concurrency": "node scripts/test-quota-concurrency.mjs"
   },
   "dependencies": {
-    "@hcaptcha/react-hcaptcha": "^2.0.2",
     "@supabase/supabase-js": "^2.110.5",
     "@tailwindcss/vite": "^4.1.16",
     "lucide-react": "^0.548.0",
